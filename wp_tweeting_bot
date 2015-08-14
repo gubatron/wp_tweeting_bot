@@ -1,0 +1,70 @@
+#!/usr/bin/env python
+import configparser
+import feedparser
+import urllib
+import re
+from twitter import *
+
+og_image_pattern = re.compile('.*og:image" content="(.*)".*')
+
+
+class Feed:
+    def __init__(self, config, section):
+        self.feed_url = config.get(section, 'feed_url')
+        self.num_last_tweets = config.getint(section, 'num_last_tweets')
+        self.attach_featured_images = config.getboolean(section, 'attach_featured_images')
+        self.oauth_token = config.get(section, 'oauth_token')
+        self.oauth_token_secret = config.get(section, 'oauth_token_secret')
+        self.oauth_consumer_key = config.get(section, 'oauth_consumer_key')
+        self.oauth_consumer_secret = config.get(section, 'oauth_consumer_secret')
+
+    def __str__(self):
+        return str(self.__dict__)
+
+    def get_oauth(self):
+        return OAuth(self.oauth_token,
+                     self.oauth_token_secret,
+                     self.oauth_consumer_key,
+                     self.oauth_consumer_secret)
+
+    def tweet_last_posts(self):
+        t = Twitter(auth=self.get_oauth())
+
+        feed_dict = feedparser.parse(self.feed_url)
+
+        for i in xrange(self.num_last_tweets):
+            entry = feed_dict.entries[i]
+
+            if self.attach_featured_images:
+                Feed.scrape_entry_og_image(entry)
+
+                if entry.featured_image_url is not None:
+                    print "Featured Image: ", entry.featured_image_url
+                    # TODO: Download the image and have the data ready for the tweet.
+            else:
+                t.statuses.update(status=entry.title + " " + entry.link)
+
+    @staticmethod
+    def scrape_entry_og_image(entry):
+        '''Download a feed's entry HTML and parse it to find the og:image in the entry if available.'''
+        entry.featured_image_url = None
+        f = urllib.urlopen(entry.link)
+        html = f.read()
+        match = og_image_pattern.search(html)
+        if match is not None:
+            entry.featured_image_url = match.group(1)
+        return entry.featured_image_url is not None
+
+
+def load_config(configFile='config.conf'):
+    '''Returns a configparser object that contains all the configuration for the different blogs and twitter accounts.'''
+    config = configparser.ConfigParser()
+    config.read(configFile)
+    return config
+
+
+if __name__ == '__main__':
+    config = load_config()
+    for section_name in config.sections():
+        feed = Feed(config, section_name)
+        feed.tweet_last_posts()

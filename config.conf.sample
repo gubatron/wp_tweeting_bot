@@ -1,0 +1,17 @@
+[yourblog.com]
+feed_url=http://www.yourblog.com/index.php/feed/
+num_last_tweets=4
+attach_featured_images=true
+oauth_token=
+oauth_token_secret=
+oauth_consumer_key=
+oauth_consumer_secret=
+
+[yourOtherBlog.com]
+feed_url=http://www.yourotherblog.com/index.php/feed/
+num_last_tweets=2
+attach_featured_images=false
+oauth_token=
+oauth_token_secret=
+oauth_consumer_key=
+oauth_consumer_secret=
