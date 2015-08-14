@@ -3,6 +3,7 @@ import configparser
 import feedparser
 import urllib
 import re
+import time
 from twitter import *
 
 og_image_pattern = re.compile('.*og:image" content="(.*)".*')
@@ -12,6 +13,7 @@ class Feed:
     def __init__(self, config, section):
         self.feed_url = config.get(section, 'feed_url')
         self.num_last_tweets = config.getint(section, 'num_last_tweets')
+        self.intervals_between_tweets_in_seconds = config.getint(section, 'intervals_between_tweets_in_seconds')
         self.attach_featured_images = config.getboolean(section, 'attach_featured_images')
         self.oauth_token = config.get(section, 'oauth_token')
         self.oauth_token_secret = config.get(section, 'oauth_token_secret')
@@ -29,6 +31,7 @@ class Feed:
 
     def tweet_last_posts(self):
         t = Twitter(auth=self.get_oauth())
+        t_upload = Twitter(auth=self.get_oauth(), domain='upload.twitter.com')
 
         feed_dict = feedparser.parse(self.feed_url)
 
@@ -39,10 +42,14 @@ class Feed:
                 Feed.scrape_entry_og_image(entry)
 
                 if entry.featured_image_url is not None:
-                    print "Featured Image: ", entry.featured_image_url
-                    # TODO: Download the image and have the data ready for the tweet.
+                    img_data = Feed.download_image(entry.featured_image_url)
+                    img_id = t_upload.media.upload(media=img_data)["media_id_string"]
+                    t.statuses.update(status=entry.title + " " + entry.link, media_ids = img_id)
             else:
                 t.statuses.update(status=entry.title + " " + entry.link)
+
+            if self.intervals_between_tweets_in_seconds > 0:
+                time.sleep(self.intervals_between_tweets_in_seconds)
 
     @staticmethod
     def scrape_entry_og_image(entry):
@@ -50,10 +57,20 @@ class Feed:
         entry.featured_image_url = None
         f = urllib.urlopen(entry.link)
         html = f.read()
+        f.close()
         match = og_image_pattern.search(html)
         if match is not None:
             entry.featured_image_url = match.group(1)
         return entry.featured_image_url is not None
+
+    @staticmethod
+    def download_image(img_url):
+        file_path = "image.tmp"
+        urllib.urlretrieve(img_url, file_path)
+        f = open(file_path,'rb')
+        img_data = f.read()
+        f.close()
+        return img_data
 
 
 def load_config(configFile='config.conf'):
