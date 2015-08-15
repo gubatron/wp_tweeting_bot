@@ -4,6 +4,7 @@ import feedparser
 import urllib
 import re
 import time
+import sys
 from twitter import *
 
 og_image_pattern = re.compile('.*og:image" content="(.*)".*')
@@ -81,7 +82,11 @@ def load_config(configFile='config.conf'):
 
 
 if __name__ == '__main__':
-    config = load_config()
+    if len(sys.argv) < 2:
+        print "Error: config file path not passed.\n"
+        sys.exit(1)
+        
+    config = load_config(sys.argv[1])
     for section_name in config.sections():
         feed = Feed(config, section_name)
         feed.tweet_last_posts()
