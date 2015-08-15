@@ -5,6 +5,7 @@ import urllib
 import re
 import time
 import sys
+import threading
 from twitter import *
 
 og_image_pattern = re.compile('.*og:image" content="(.*)".*')
@@ -89,4 +90,6 @@ if __name__ == '__main__':
     config = load_config(sys.argv[1])
     for section_name in config.sections():
         feed = Feed(config, section_name)
-        feed.tweet_last_posts()
+        t = threading.Thread(target=feed.tweet_last_posts)
+        t.daemon = False
+        t.start()
