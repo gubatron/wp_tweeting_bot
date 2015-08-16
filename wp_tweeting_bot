@@ -8,8 +8,7 @@ import sys
 import threading
 from twitter import *
 
-og_image_pattern = re.compile('.*og:image" content="(.*)".*')
-
+og_image_pattern = re.compile('.*og:image" content="(.*?)".*?\/>')
 
 class Feed:
     def __init__(self, config, section):
@@ -21,6 +20,7 @@ class Feed:
         self.oauth_token_secret = config.get(section, 'oauth_token_secret')
         self.oauth_consumer_key = config.get(section, 'oauth_consumer_key')
         self.oauth_consumer_secret = config.get(section, 'oauth_consumer_secret')
+        self.dry_run = config.getboolean(section, 'dry_run')
 
     def __str__(self):
         return str(self.__dict__)
@@ -36,22 +36,33 @@ class Feed:
         t_upload = Twitter(auth=self.get_oauth(), domain='upload.twitter.com')
 
         feed_dict = feedparser.parse(self.feed_url)
-
-        for i in xrange(self.num_last_tweets):
+        num_tweets = min(self.num_last_tweets, len(feed_dict.entries))
+        
+        for i in xrange(num_tweets):
             entry = feed_dict.entries[i]
-
             if self.attach_featured_images:
                 Feed.scrape_entry_og_image(entry)
 
                 if entry.featured_image_url is not None:
-                    img_data = Feed.download_image(entry.featured_image_url)
-                    img_id = t_upload.media.upload(media=img_data)["media_id_string"]
-                    t.statuses.update(status=entry.title + " " + entry.link, media_ids = img_id)
+                    if not self.dry_run:
+                        img_data = Feed.download_image(entry.featured_image_url)
+                        img_id = t_upload.media.upload(media=img_data)["media_id_string"]
+                        t.statuses.update(status=entry.title + " " + entry.link, media_ids = img_id)
+                    else:
+                        print "[DRY-RUN] ", entry.title + " " + entry.link, " (+img attachment)"
+                else:
+                    print "Could not scrape featured image url from ", entry.link, " (regex might need maintenance)"
             else:
-                t.statuses.update(status=entry.title + " " + entry.link)
+                if not self.dry_run:
+                    t.statuses.update(status=entry.title + " " + entry.link)
+                else:
+                    print "[DRY-RUN] ", entry.title + " " + entry.link
 
             if self.intervals_between_tweets_in_seconds > 0:
-                time.sleep(self.intervals_between_tweets_in_seconds)
+                if not self.dry_run:
+                    time.sleep(self.intervals_between_tweets_in_seconds)
+                else:
+                    print "[DRY-RUN] ", "sleep(", self.intervals_between_tweets_in_seconds,")"
 
     @staticmethod
     def scrape_entry_og_image(entry):
