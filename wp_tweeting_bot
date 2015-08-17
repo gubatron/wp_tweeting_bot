@@ -40,6 +40,10 @@ class Feed:
         
         for i in xrange(num_tweets):
             entry = feed_dict.entries[i]
+            title = entry.title
+            if len(title) > 91:
+                title = title[:91]+'...'
+            
             if self.attach_featured_images:
                 Feed.scrape_entry_og_image(entry)
 
@@ -47,22 +51,24 @@ class Feed:
                     if not self.dry_run:
                         img_data = Feed.download_image(entry.featured_image_url)
                         img_id = t_upload.media.upload(media=img_data)["media_id_string"]
-                        t.statuses.update(status=entry.title + " " + entry.link, media_ids = img_id)
+                        t.statuses.update(status=title + " " + entry.link, media_ids = img_id)
                     else:
-                        print "[DRY-RUN] ", entry.title + " " + entry.link, " (+img attachment)"
+                        print "[DRY-RUN] ", title + " " + entry.link, " (+img attachment - ", entry.featured_image_url, ")"
+                        img_data = Feed.download_image(entry.featured_image_url)
+                        print "[DRY-RUN] ", len(img_data)
                 else:
                     print "Could not scrape featured image url from ", entry.link, " (regex might need maintenance)"
             else:
                 if not self.dry_run:
-                    t.statuses.update(status=entry.title + " " + entry.link)
+                    t.statuses.update(status=title + " " + entry.link)
                 else:
-                    print "[DRY-RUN] ", entry.title + " " + entry.link
+                    print "[DRY-RUN] ", title + " " + entry.link
 
             if self.intervals_between_tweets_in_seconds > 0:
                 if not self.dry_run:
                     time.sleep(self.intervals_between_tweets_in_seconds)
                 else:
-                    print "[DRY-RUN] ", "sleep(", self.intervals_between_tweets_in_seconds,")"
+                    print "[DRY-RUN] ", "sleep(", self.intervals_between_tweets_in_seconds,")\n"
 
     @staticmethod
     def scrape_entry_og_image(entry):
