@@ -17,4 +17,4 @@ Make sure you have all the required libraries as specified by the [requirements.
 Add as many sections on your config file for as many blogs as you need.
 See [config.conf.sample](config.conf.sample) (save it as `config.conf`)
 
-Simply run `./wp_tweeting_bot`
+Simply run `./wp_tweeting_bot <config_file_path>`
