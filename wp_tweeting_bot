@@ -53,22 +53,22 @@ class Feed:
                         img_id = t_upload.media.upload(media=img_data)["media_id_string"]
                         t.statuses.update(status=title + " " + entry.link, media_ids = img_id)
                     else:
-                        print "[DRY-RUN] ", title + " " + entry.link, " (+img attachment - ", entry.featured_image_url, ")"
+                        print "[DRY-RUN (",i,")] ", title + " " + entry.link, " (+img attachment - ", entry.featured_image_url, ")"
                         img_data = Feed.download_image(entry.featured_image_url)
-                        print "[DRY-RUN] ", len(img_data)
+                        print "[DRY-RUN (",i,")] ", len(img_data)
                 else:
                     print "Could not scrape featured image url from ", entry.link, " (regex might need maintenance)"
             else:
                 if not self.dry_run:
                     t.statuses.update(status=title + " " + entry.link)
                 else:
-                    print "[DRY-RUN] ", title + " " + entry.link
+                    print "[DRY-RUN (",i,")] ", title + " " + entry.link
 
             if self.intervals_between_tweets_in_seconds > 0:
                 if not self.dry_run:
                     time.sleep(self.intervals_between_tweets_in_seconds)
                 else:
-                    print "[DRY-RUN] ", "sleep(", self.intervals_between_tweets_in_seconds,")\n"
+                    print "[DRY-RUN (",i,")] ", "sleep(", self.intervals_between_tweets_in_seconds,")\n"
 
     @staticmethod
     def scrape_entry_og_image(entry):
