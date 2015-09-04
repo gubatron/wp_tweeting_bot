@@ -37,7 +37,13 @@ class Feed:
 
         feed_dict = feedparser.parse(self.feed_url)
         num_tweets = min(self.num_last_tweets, len(feed_dict.entries))
-        
+
+        if self.dry_run and num_tweets is 0:
+            print "[DRY-RUN] Got", num_tweets,"tweets"
+            print feed_dict.headers
+            print feed_dict
+            print self
+                
         for i in xrange(num_tweets):
             entry = feed_dict.entries[i]
             title = entry.title
