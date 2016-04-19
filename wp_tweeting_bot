@@ -14,6 +14,11 @@ class Feed:
     def __init__(self, config, section):
         self.feed_url = config.get(section, 'feed_url')
         self.num_last_tweets = config.getint(section, 'num_last_tweets')
+        self.max_days_in_rotation = config.getint(section, 'max_days_in_rotation')
+
+        if self.max_days_in_rotation != -1:
+            self.max_seconds_in_rotation = self.max_days_in_rotation * 24 * 60 * 60
+
         self.intervals_between_tweets_in_seconds = config.getint(section, 'intervals_between_tweets_in_seconds')
         self.attach_featured_images = config.getboolean(section, 'attach_featured_images')
         self.oauth_token = config.get(section, 'oauth_token')
@@ -49,7 +54,14 @@ class Feed:
             title = entry.title
             if len(title) > 91:
                 title = title[:91]+'...'
-            
+
+            seconds_old=time.mktime(entry.published_parsed)
+            now=time.time()
+            if (now-seconds_old) > self.max_seconds_in_rotation:
+                if self.dry_run:
+                    print "[DRY-RUN (",i,")] skipping (too old) ", title
+                continue
+                            
             if self.attach_featured_images:
                 Feed.scrape_entry_og_image(entry)
 
@@ -60,6 +72,7 @@ class Feed:
                         t.statuses.update(status=title + " " + entry.link, media_ids = img_id)
                     else:
                         print "[DRY-RUN (",i,")] ", title + " " + entry.link, " (+img attachment - ", entry.featured_image_url, ")"
+                        print "[DRY-RUN (",i,")] time() -> ", time.mktime(entry.published_parsed)
                         img_data = Feed.download_image(entry.featured_image_url)
                         print "[DRY-RUN (",i,")] ", len(img_data)
                 else:
