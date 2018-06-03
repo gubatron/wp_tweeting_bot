@@ -61,7 +61,7 @@ class FileFeed(Feed):
 
     def update_tweets(self):
         old_tweets = self.tweets[:]
-        new_tweets = self.load_tweets(self.feed_path)
+        new_tweets = FileFeed.load_tweets(self.feed_path)
 
         # Delete old tweets that are no longer in the file
         old_to_delete = FileFeed.elems_missing_in_other_list(old_tweets, new_tweets, lambda a,b : a['msg'] == b['msg'])
@@ -102,11 +102,16 @@ class FileFeed(Feed):
             return tweet_length < TWEET_MAX_LENGHT
         return True
 
-    def tweet_is_due(self, last_pub_ts):
-        # TODO: max_secs_in_rotation vs first_pub_ts
-        time_since_last_pub = int(time.time()) - last_pub_ts
+    def tweet_is_due(self, tweet):
+        if self.max_secs_in_rotation > 0 and tweet['first_pub_ts'] > 0:
+            time_since_first_pub = int(time.time()) - tweet['first_pub_ts']
+            if time_since_first_pub > self.max_secs_in_rotation:
+                print "tweet_id_due() OUT OF ROTATION max_secs_in_rotation - " + tweet['msg']
+                return False
+
+        time_since_last_pub = int(time.time()) - tweet['last_pub_ts']
         is_due = time_since_last_pub > self.repetition_interval_in_seconds
-        print "tweet_is_due(): " + str(is_due) + " time_since_last_pub=" + str(time_since_last_pub) + "s vs rep_interval=" + str(self.repetition_interval_in_seconds) + "s)"
+        print "tweet_is_due(): " + str(is_due) + " time_since_last_pub=" + str(time_since_last_pub) + "s vs rep_interval=" + str(self.repetition_interval_in_seconds) + "s) - " + tweet['msg']
         return is_due
 
     def file_was_modified(self):
@@ -133,7 +138,7 @@ class FileFeed(Feed):
 
             tweet = self.tweets[index]
 
-            if tweet['pub_ts'] > 0 and not self.tweet_is_due(tweet['pub_ts']):
+            if tweet['pub_ts'] > 0 and not self.tweet_is_due(tweet):
                 print "It's too soon to publish this tweet again (%s)" % tweet['msg']
                 index = FileFeed.inc_index(index, self.tweets)
 
