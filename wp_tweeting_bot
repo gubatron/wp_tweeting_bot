@@ -72,15 +72,7 @@ class FileFeed(Feed):
                 self.remove_tweet_by_text(old)
 
         # Add new tweets in the file to our tweet list
-        new_to_add = []
-        for new in new_tweets:
-            found_in_old = False
-            for old in old_tweets:
-                if new['msg'] == old['msg']:
-                    found_in_old = True
-            if not found_in_old:
-                new_to_add.append(new)
-
+        new_to_add = FileFeed.elems_missing_in_other_list(new_tweets, old_tweets, lambda a,b : a['msg'] == b['msg'])
         if len(new_to_add) > 0:
             for new in new_to_add:
                 self.tweets.append(new)
@@ -151,12 +143,12 @@ class FileFeed(Feed):
                 continue
 
             if self.tweet_is_valid(tweet['msg']):
+                tweet['pub_ts'] = int(time.time())
+                self.tweets[index] = tweet
                 if self.dry_run:
                     print "[DRY-RUN tweet! (", index, ")] tweet['msg'], )", tweet['msg'],"\n"
                 else:
                     self.twitter_api.statuses.update(status=tweet['msg'])
-                tweet['pub_ts'] = int(time.time())
-                self.tweets[index] = tweet
             else:
                 print "The tweet located in ", self.feed_path, " line ", index+1 , " isn't valid."
                 index = FileFeed.inc_index(index, self.tweets)
