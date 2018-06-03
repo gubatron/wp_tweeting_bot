@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import os
-
 import configparser
 import feedparser
 import urllib
@@ -30,6 +29,10 @@ class Feed(object):
         self.dry_run = config.getboolean(section, 'dry_run')
         self.intervals_between_tweets_in_seconds = config.getint(section, 'intervals_between_tweets_in_seconds')
         self.num_last_tweets = config.getint(section, 'num_last_tweets')
+        self.max_days_in_rotation = config.getint(section, 'max_days_in_rotation')
+        if self.max_days_in_rotation != -1:
+            self.max_seconds_in_rotation = self.max_days_in_rotation * 24 * 60 * 60
+
         # Auth Credentials
         self.oauth = OAuth(self.oauth_token, self.oauth_token_secret, self.oauth_consumer_key, self.oauth_consumer_secret)
         self.twitter_api = Twitter(auth=self.oauth)
@@ -46,17 +49,41 @@ class FileFeed(Feed):
     def __init__(self, config, section):
         super(FileFeed, self).__init__(config, section)
         self.feed_path = config.get(section, 'feed_path')
-        self.load_tweets()
+        self.tweets = []
+        self.file_feed_last_modified = os.stat(self.feed_path).st_mtime
+        self.repetition_interval_in_seconds = config.getint(section, 'repetition_interval_in_seconds')
 
-    def load_tweets(self):
-        if not os.path.isfile(self.feed_path):
-            raise IOError("%s is not a file", self.feed_path)
+    def remove_tweet_by_text(self, old_tweet):
+        for t in self.tweets:
+            if t['msg'] == old_tweet['msg']:
+                self.tweets.remove(t)
+                break
 
-        with open(self.feed_path, 'r') as tweets_file:
-            self.tweets = tweets_file.readlines()
+    def update_tweets(self):
+        old_tweets = self.tweets[:]
+        new_tweets = self.load_tweets(self.feed_path)
 
-        if len(self.tweets) == 0:
-            raise IOError("%s file is empty ", self.feed_path)
+        # Delete old tweets that are no longer in the file
+        old_to_delete = FileFeed.elems_missing_in_other_list(old_tweets, new_tweets, lambda a,b : a['msg'] == b['msg'])
+
+        if len(old_to_delete) > 0:
+            for old in old_to_delete:
+                old_tweets.remove(old)
+                self.remove_tweet_by_text(old)
+
+        # Add new tweets in the file to our tweet list
+        new_to_add = []
+        for new in new_tweets:
+            found_in_old = False
+            for old in old_tweets:
+                if new['msg'] == old['msg']:
+                    found_in_old = True
+            if not found_in_old:
+                new_to_add.append(new)
+
+        if len(new_to_add) > 0:
+            for new in new_to_add:
+                self.tweets.append(new)
 
     def tweet_is_valid(self, tweet):
         """
@@ -83,25 +110,96 @@ class FileFeed(Feed):
             return tweet_length < TWEET_MAX_LENGHT
         return True
 
+    def tweet_is_due(self, last_pub_ts):
+        # TODO: max_secs_in_rotation vs first_pub_ts
+        time_since_last_pub = int(time.time()) - last_pub_ts
+        is_due = time_since_last_pub > self.repetition_interval_in_seconds
+        print "tweet_is_due(): " + str(is_due) + " time_since_last_pub=" + str(time_since_last_pub) + "s vs rep_interval=" + str(self.repetition_interval_in_seconds) + "s)"
+        return is_due
+
+    def file_was_modified(self):
+        return self.file_feed_last_modified != os.stat(self.feed_path).st_mtime
+
     def process_tweets(self):
         print("Processing from FileFeed")
-        for index, tweet in enumerate(self.tweets):
-            if self.tweet_is_valid(tweet):
-                if self.dry_run:
-                    print "[DRY-RUN (", index, ")] ", "sleep(", self.intervals_between_tweets_in_seconds, ") ", tweet, ")\n"
-                else:
-                    self.twitter_api.statuses.update(status=tweet)
-            else:
-                print "The tweet located in ", self.feed_path, " line ", index, " isn't valid."
+        try:
+            self.tweets = FileFeed.load_tweets(self.feed_path)
+        except Exception as e:
+            raise e
+
+        index = 0
+        while True:
+            if not os.path.isfile(self.feed_path):
+                raise IOError("%s no longer a valid file, aborting execution" % self.feed_path)
+
+            if self.file_was_modified():
+                print "Feed file was modified!, updating tweets"
+                self.file_feed_last_modified = os.stat(self.feed_path).st_mtime
+                index = 0
+                self.update_tweets()
                 continue
 
-            # Checking if file feed still exists.
-            if not os.path.isfile(self.feed_path):
-                break
+            tweet = self.tweets[index]
 
-            if self.intervals_between_tweets_in_seconds > 0 or index != len(self.tweets):
-                if not self.dry_run:
+            if tweet['pub_ts'] > 0 and not self.tweet_is_due(tweet['pub_ts']):
+                print "It's too soon to publish this tweet again (%s)" % tweet['msg']
+                index = FileFeed.inc_index(index, self.tweets)
+
+                if index == len(self.tweets)-1:
+                    print "\nsleeping (all tweets non-due, avoid cpu hogging)", self.intervals_between_tweets_in_seconds, "seconds... ZZzzz zzz"
                     time.sleep(self.intervals_between_tweets_in_seconds)
+                continue
+
+            if self.tweet_is_valid(tweet['msg']):
+                if self.dry_run:
+                    print "[DRY-RUN tweet! (", index, ")] tweet['msg'], )", tweet['msg'],"\n"
+                else:
+                    self.twitter_api.statuses.update(status=tweet['msg'])
+                tweet['pub_ts'] = int(time.time())
+                self.tweets[index] = tweet
+            else:
+                print "The tweet located in ", self.feed_path, " line ", index+1 , " isn't valid."
+                index = FileFeed.inc_index(index, self.tweets)
+                continue
+            print "\nsleeping ", self.intervals_between_tweets_in_seconds, "seconds... ZZzzz zzz"
+
+            index = FileFeed.inc_index(index, self.tweets)
+            time.sleep(self.intervals_between_tweets_in_seconds)
+
+    @staticmethod
+    def load_tweets(feed_path):
+        tweets = []
+        if not os.path.isfile(feed_path):
+            raise IOError("%s is not a file", feed_path)
+
+        with open(feed_path, 'r') as tweets_file:
+                # First Time load
+                # TODO: 'first_pub_ts'
+                tweets = [{'msg': t, 'pub_ts': 0} for t in tweets_file.readlines()]
+                # tweets = tweets_file.readlines()
+
+        last_modification = os.stat(feed_path).st_mtime
+
+        if len(tweets) == 0:
+            raise IOError("%s file is empty ", feed_path)
+        return tweets
+
+    @staticmethod
+    def inc_index(index, collection):
+        return (index+1) % len(collection)
+
+    @staticmethod
+    def elems_missing_in_other_list(the_one, the_other, comparison_function):
+        missing = []
+        for one in the_one:
+            one_found = False
+            for other in the_other:
+                if comparison_function(one, other):
+                    one_found = True
+                    break
+            if not one_found:
+                missing.append(one)
+        return missing
 
 
 class URLFeed(Feed):
@@ -109,9 +207,6 @@ class URLFeed(Feed):
         super(URLFeed, self).__init__(config, section)
         self.feed_url = config.get(section, 'feed_url')
         self.attach_featured_images = config.getboolean(section, 'attach_featured_images')
-        self.max_days_in_rotation = config.getint(section, 'max_days_in_rotation')
-        if self.max_days_in_rotation != -1:
-            self.max_seconds_in_rotation = self.max_days_in_rotation * 24 * 60 * 60
 
     def process_tweets(self):
         feed_dict = feedparser.parse(self.feed_url)
