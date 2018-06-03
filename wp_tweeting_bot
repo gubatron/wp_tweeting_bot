@@ -28,8 +28,8 @@ class Feed(object):
         self.oauth_consumer_secret = config.get(section, 'oauth_consumer_secret')
         self.dry_run = config.getboolean(section, 'dry_run')
         self.intervals_between_tweets_in_seconds = config.getint(section, 'intervals_between_tweets_in_seconds')
-        self.num_last_tweets = config.getint(section, 'num_last_tweets')
         self.max_days_in_rotation = config.getint(section, 'max_days_in_rotation')
+        self.max_seconds_in_rotation = -1
         if self.max_days_in_rotation != -1:
             self.max_seconds_in_rotation = self.max_days_in_rotation * 24 * 60 * 60
 
@@ -44,8 +44,19 @@ class Feed(object):
     def __str__(self):
         return str(self.__dict__)
 
-
 class FileFeed(Feed):
+    """
+    A file feed reads one tweet per line from a text file, tweets are rotated according to the configuration settings.
+
+    Special configuration options for FileFeed:
+       'feed_path': full file path of text file containing tweets
+       'repetition_interval_in_seconds': how many seconds to wait before repeating a tweet
+
+    Internally tweets are kept as a list of dictionaries
+    [{'msg': <the tweet text>,
+      'first_pub_ts': <timestamp of the first time this message was tweeted>,
+      'last_pub_ts': <timestamp of the last time this message was tweeted> }]
+    """
     def __init__(self, config, section):
         super(FileFeed, self).__init__(config, section)
         self.feed_path = config.get(section, 'feed_path')
@@ -64,7 +75,7 @@ class FileFeed(Feed):
         new_tweets = FileFeed.load_tweets(self.feed_path)
 
         # Delete old tweets that are no longer in the file
-        old_to_delete = FileFeed.elems_missing_in_other_list(old_tweets, new_tweets, lambda a,b : a['msg'] == b['msg'])
+        old_to_delete = elems_missing_in_other_list(old_tweets, new_tweets, lambda a,b : a['msg'] == b['msg'])
 
         if len(old_to_delete) > 0:
             for old in old_to_delete:
@@ -72,7 +83,7 @@ class FileFeed(Feed):
                 self.remove_tweet_by_text(old)
 
         # Add new tweets in the file to our tweet list
-        new_to_add = FileFeed.elems_missing_in_other_list(new_tweets, old_tweets, lambda a,b : a['msg'] == b['msg'])
+        new_to_add = elems_missing_in_other_list(new_tweets, old_tweets, lambda a,b : a['msg'] == b['msg'])
         if len(new_to_add) > 0:
             for new in new_to_add:
                 self.tweets.append(new)
@@ -102,13 +113,15 @@ class FileFeed(Feed):
             return tweet_length < TWEET_MAX_LENGHT
         return True
 
-    def tweet_is_due(self, tweet):
-        if self.max_secs_in_rotation > 0 and tweet['first_pub_ts'] > 0:
+    def tweet_in_rotation(self, tweet):
+        if self.max_seconds_in_rotation > 0 and tweet['first_pub_ts'] > 0:
             time_since_first_pub = int(time.time()) - tweet['first_pub_ts']
-            if time_since_first_pub > self.max_secs_in_rotation:
-                print "tweet_id_due() OUT OF ROTATION max_secs_in_rotation - " + tweet['msg']
+            if time_since_first_pub > self.max_seconds_in_rotation:
+                print "tweet_id_due() OUT OF ROTATION max_seconds_in_rotation - " + tweet['msg']
                 return False
+        return True
 
+    def tweet_is_due(self, tweet):
         time_since_last_pub = int(time.time()) - tweet['last_pub_ts']
         is_due = time_since_last_pub > self.repetition_interval_in_seconds
         print "tweet_is_due(): " + str(is_due) + " time_since_last_pub=" + str(time_since_last_pub) + "s vs rep_interval=" + str(self.repetition_interval_in_seconds) + "s) - " + tweet['msg']
@@ -138,42 +151,43 @@ class FileFeed(Feed):
 
             tweet = self.tweets[index]
 
-            if tweet['pub_ts'] > 0 and not self.tweet_is_due(tweet):
-                print "It's too soon to publish this tweet again (%s)" % tweet['msg']
-                index = FileFeed.inc_index(index, self.tweets)
-
+            if not self.tweet_in_rotation(tweet) or (tweet['last_pub_ts'] > 0 and not self.tweet_is_due(tweet)):
+                if not self.tweet_in_rotation(tweet):
+                   print "Tweet no longer in rotation (%s)" % tweet['msg']
+                elif tweet['last_pub_ts'] > 0 and not self.tweet_is_due(tweet):
+                   print "It's too soon to publish this tweet again (%s)" % tweet['msg']                
                 if index == len(self.tweets)-1:
                     print "\nsleeping (all tweets non-due, avoid cpu hogging)", self.intervals_between_tweets_in_seconds, "seconds... ZZzzz zzz"
                     time.sleep(self.intervals_between_tweets_in_seconds)
+                index = inc_index(index, self.tweets)
                 continue
 
-            if self.tweet_is_valid(tweet['msg']):
-                tweet['pub_ts'] = int(time.time())
-                self.tweets[index] = tweet
-                if self.dry_run:
-                    print "[DRY-RUN tweet! (", index, ")] tweet['msg'], )", tweet['msg'],"\n"
-                else:
-                    self.twitter_api.statuses.update(status=tweet['msg'])
-            else:
+            if not self.tweet_is_valid(tweet['msg']):
                 print "The tweet located in ", self.feed_path, " line ", index+1 , " isn't valid."
-                index = FileFeed.inc_index(index, self.tweets)
+                index = inc_index(index, self.tweets)
                 continue
-            print "\nsleeping ", self.intervals_between_tweets_in_seconds, "seconds... ZZzzz zzz"
 
-            index = FileFeed.inc_index(index, self.tweets)
+            if self.dry_run:
+                print "[DRY-RUN tweet! (", index, ")] tweet['msg'], )", tweet['msg'],"\n"
+            else:
+                self.twitter_api.statuses.update(status=tweet['msg'])
+
+            tweet['last_pub_ts'] = int(time.time())
+            self.tweets[index] = tweet # update the list with the modified dict
+
+            index = inc_index(index, self.tweets)
+            print "\nsleeping ", self.intervals_between_tweets_in_seconds, "seconds... ZZzzz zzz"
             time.sleep(self.intervals_between_tweets_in_seconds)
 
     @staticmethod
     def load_tweets(feed_path):
         tweets = []
         if not os.path.isfile(feed_path):
+            print "%s is not a file" % feed_path
             raise IOError("%s is not a file", feed_path)
 
         with open(feed_path, 'r') as tweets_file:
-                # First Time load
-                # TODO: 'first_pub_ts'
-                tweets = [{'msg': t, 'pub_ts': 0} for t in tweets_file.readlines()]
-                # tweets = tweets_file.readlines()
+            tweets = [{'msg': t, 'last_pub_ts': 0, 'first_pub_ts':0} for t in tweets_file.readlines()]
 
         last_modification = os.stat(feed_path).st_mtime
 
@@ -181,33 +195,27 @@ class FileFeed(Feed):
             raise IOError("%s file is empty ", feed_path)
         return tweets
 
-    @staticmethod
-    def inc_index(index, collection):
-        return (index+1) % len(collection)
-
-    @staticmethod
-    def elems_missing_in_other_list(the_one, the_other, comparison_function):
-        missing = []
-        for one in the_one:
-            one_found = False
-            for other in the_other:
-                if comparison_function(one, other):
-                    one_found = True
-                    break
-            if not one_found:
-                missing.append(one)
-        return missing
-
-
 class URLFeed(Feed):
+    """
+    Reads titles from a wordpress RSS feed and uses them as tweets.
+    
+    Config values particular to an URL feed:
+    'feed_url': The URL to the RSS feed
+    'attached_featured_images': If set to True it will look in the target HTML for a featured image, download it and attach it to the tweet
+    'num_last_tweets': How many of the last posts to tweet about, the rest are ignored
+    """
     def __init__(self, config, section):
         super(URLFeed, self).__init__(config, section)
         self.feed_url = config.get(section, 'feed_url')
+        self.num_last_tweets = config.getint(section, 'num_last_tweets')
         self.attach_featured_images = config.getboolean(section, 'attach_featured_images')
 
     def process_tweets(self):
         feed_dict = feedparser.parse(self.feed_url)
-        num_tweets = min(self.num_last_tweets, len(feed_dict.entries))
+
+        num_tweets = len(feed_dict.entries)
+        if self.num_last_tweets != -1:
+            num_tweets = min(self.num_last_tweets, len(feed_dict.entries))
 
         if self.dry_run and num_tweets is 0:
             print "[DRY-RUN] Got", num_tweets,"tweets"
@@ -233,13 +241,13 @@ class URLFeed(Feed):
 
                 if featured_image_url is not None:
                     if not self.dry_run:
-                        img_data = URLFeed.download_image(featured_image_url)
+                        img_data = download_image(featured_image_url)
                         img_id = self.twitter_upload_api.media.upload(media=img_data)["media_id_string"]
                         self.twitter_api.statuses.update(status=title + " " + entry.link, media_ids = img_id) # Call twitter API
                     else:
                         print "[DRY-RUN (", i, ")] ", title + " " + entry.link, " (+img attachment - ", featured_image_url, ")"
                         print "[DRY-RUN (", i, ")] time() -> ", time.mktime(entry.published_parsed)
-                        img_data = URLFeed.download_image(featured_image_url)
+                        img_data = download_image(featured_image_url)
                         print "[DRY-RUN (", i, ")] ", len(img_data)
                 else:
                     print "Could not scrape featured image url from ", entry.link, " (regex might need maintenance)"
@@ -272,15 +280,28 @@ class URLFeed(Feed):
             featured_image_url = match.group(1)
         return featured_image_url
 
-    @staticmethod
-    def download_image(img_url):
-        file_path = "image.tmp"
-        urllib.urlretrieve(img_url, file_path)
-        f = open(file_path,'rb')
-        img_data = f.read()
-        f.close()
-        return img_data
+def download_image(img_url):
+    file_path = "image.tmp"
+    urllib.urlretrieve(img_url, file_path)
+    f = open(file_path,'rb')
+    img_data = f.read()
+    f.close()
+    return img_data
 
+def inc_index(index, collection):
+    return (index+1) % len(collection)
+
+def elems_missing_in_other_list(the_one, the_other, comparison_function):
+    missing = []
+    for one in the_one:
+        one_found = False
+        for other in the_other:
+            if comparison_function(one, other):
+                one_found = True
+                break
+        if not one_found:
+            missing.append(one)
+    return missing
 
 def load_config(configFile='config.conf'):
     """
