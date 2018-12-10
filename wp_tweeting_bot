@@ -7,7 +7,7 @@ import re
 import time
 import sys
 import threading
-from twitter import Twitter, OAuth
+from twitter import Twitter, OAuth, TwitterHTTPError
 
 TWITTER_CONSIDERED_URL_LENGHT = 23
 TWEET_MAX_LENGHT = 280
@@ -170,7 +170,10 @@ class FileFeed(Feed):
             if self.dry_run:
                 print "[DRY-RUN tweet! (", index, ")] tweet['msg'], )", tweet['msg'],"\n"
             else:
-                self.twitter_api.statuses.update(status=tweet['msg'])
+                try:
+                    self.twitter_api.statuses.update(status=tweet['msg'])
+                except TwitterHTTPError:
+                    print "Skipping ", tweet['msg'], ' considered as a duplicate'
 
             tweet['last_pub_ts'] = int(time.time())
             self.tweets[index] = tweet # update the list with the modified dict
