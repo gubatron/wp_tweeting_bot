@@ -7,6 +7,7 @@ import re
 import time
 import sys
 import threading
+import random
 from twitter import Twitter, OAuth, TwitterHTTPError
 
 TWITTER_CONSIDERED_URL_LENGHT = 23
@@ -60,6 +61,7 @@ class FileFeed(Feed):
     def __init__(self, config, section):
         super(FileFeed, self).__init__(config, section)
         self.feed_path = config.get(section, 'feed_path')
+        self.shuffle = config.getboolean(section, 'shuffle')
         self.tweets = []
         self.file_feed_last_modified = os.stat(self.feed_path).st_mtime
         self.repetition_interval_in_seconds = config.getint(section, 'repetition_interval_in_seconds')
@@ -72,7 +74,7 @@ class FileFeed(Feed):
 
     def update_tweets(self):
         old_tweets = self.tweets[:]
-        new_tweets = FileFeed.load_tweets(self.feed_path)
+        new_tweets = FileFeed.load_tweets(self.feed_pat, self.shuffle)
 
         # Delete old tweets that are no longer in the file
         old_to_delete = elems_missing_in_other_list(old_tweets, new_tweets, lambda a,b : a['msg'] == b['msg'])
@@ -133,7 +135,7 @@ class FileFeed(Feed):
     def process_tweets(self):
         print("Processing from FileFeed")
         try:
-            self.tweets = FileFeed.load_tweets(self.feed_path)
+            self.tweets = FileFeed.load_tweets(self.feed_path, self.shuffle)
         except Exception as e:
             raise e
 
@@ -183,7 +185,7 @@ class FileFeed(Feed):
             time.sleep(self.intervals_between_tweets_in_seconds)
 
     @staticmethod
-    def load_tweets(feed_path):
+    def load_tweets(feed_path, shuffle):
         tweets = []
         if not os.path.isfile(feed_path):
             print "%s is not a file" % feed_path
@@ -196,6 +198,11 @@ class FileFeed(Feed):
 
         if len(tweets) == 0:
             raise IOError("%s file is empty ", feed_path)
+
+        if shuffle:
+            print "FileFeed.load_tweets: Randomizing tweets"
+            random.shuffle(tweets)
+        
         return tweets
 
 class URLFeed(Feed):
