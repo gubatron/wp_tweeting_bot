@@ -74,7 +74,7 @@ class FileFeed(Feed):
 
     def update_tweets(self):
         old_tweets = self.tweets[:]
-        new_tweets = FileFeed.load_tweets(self.feed_pat, self.shuffle)
+        new_tweets = FileFeed.load_tweets(self.feed_path, self.shuffle)
 
         # Delete old tweets that are no longer in the file
         old_to_delete = elems_missing_in_other_list(old_tweets, new_tweets, lambda a,b : a['msg'] == b['msg'])
