@@ -202,6 +202,7 @@ class FileFeed(Feed):
         if shuffle:
             print "FileFeed.load_tweets: Randomizing tweets"
             random.shuffle(tweets)
+            random.shuffle(tweets)
         
         return tweets
 
