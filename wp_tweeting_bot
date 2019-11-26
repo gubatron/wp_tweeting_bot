@@ -5,7 +5,6 @@ import feedparser
 import urllib
 import re
 import time
-import ssl
 import sys
 import threading
 import random
@@ -331,9 +330,6 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         print "Error: config file path not passed.\n"
         sys.exit(1)
-    if hasattr(ssl, '_create_unverified_context'):
-        ssl._create_default_https_context = ssl._create_unverified_context
-        print("ssl: create unverified context as a default https context")
     config = load_config(sys.argv[1])
     for section_name in config.sections():
         try:
