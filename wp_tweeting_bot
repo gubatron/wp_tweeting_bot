@@ -5,6 +5,7 @@ import feedparser
 import urllib
 import re
 import time
+import ssl
 import sys
 import threading
 import random
@@ -225,6 +226,7 @@ class URLFeed(Feed):
         feed_dict = feedparser.parse(self.feed_url)
 
         num_tweets = len(feed_dict.entries)
+        print("Got " + str(num_tweets) + " tweets from " + self.feed_url)
         if self.num_last_tweets != -1:
             num_tweets = min(self.num_last_tweets, len(feed_dict.entries))
 
@@ -329,7 +331,9 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         print "Error: config file path not passed.\n"
         sys.exit(1)
-        
+    if hasattr(ssl, '_create_unverified_context'):
+        ssl._create_default_https_context = ssl._create_unverified_context
+        print("ssl: create unverified context as a default https context")
     config = load_config(sys.argv[1])
     for section_name in config.sections():
         try:
