@@ -1,0 +1,3 @@
+#/bin/bash
+./stop_rotation_bots
+./launch_rotation_bots
