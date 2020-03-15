@@ -21,3 +21,15 @@ oauth_token=
 oauth_token_secret=
 oauth_consumer_key=
 oauth_consumer_secret=
+
+[my_text_file_based_rotation_feed]
+feed_path=/home/user/feeds/rotation_file_1.txt
+max_days_in_rotation=-1
+intervals_between_tweets_in_seconds=12600
+repetition_interval_in_seconds=43200
+dry_run=false
+shuffle=true
+oauth_token=
+oauth_token_secret=
+oauth_consumer_key=
+oauth_consumer_secret=
