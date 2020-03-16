@@ -12,7 +12,7 @@ Ideally you should set it up to run on a cronjob every few hours, so you can kee
 # Usage
 Make sure you have all the required libraries as specified by the [requirements.txt](requirements.txt) file.
 
-`pip install -r requirements.txt`
+`python -m pip install -r requirements.txt`
 
 Add as many sections on your config file for as many blogs as you need.
 See [config.conf.sample](config.conf.sample) (save it as `config.conf`)
