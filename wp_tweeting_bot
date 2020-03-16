@@ -17,7 +17,6 @@ TWEET_MAX_LENGHT = 280
 MAX_TITLE_LENGTH = 231
 og_image_pattern = re.compile('.*og:image" content="(.*?)".*?\/>')
 
-
 class Feed(object):
     """
     Base class for feeds.
@@ -321,7 +320,7 @@ class URLFeed(Feed):
         """
         featured_image_url = None
         html = URLFeed.fetch_html(entry.link)
-        match = og_image_pattern.search(html)
+        match = og_image_pattern.search(html.decode('utf-8'))
         if match is not None:
             featured_image_url = match.group(1)
         return featured_image_url
