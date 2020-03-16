@@ -245,7 +245,6 @@ class URLFeed(Feed):
 
         if self.dry_run and num_tweets is 0:
             print("[DRY-RUN] Got", num_tweets,"tweets")
-            #print(feed_dict.headers)
             print(feed_dict)
             print(self)
 
@@ -268,7 +267,7 @@ class URLFeed(Feed):
             if expirable_category_matched is not None:
                 if (now-seconds_old) > expirable_category_matched.max_seconds_in_rotation:
                     if self.dry_run:
-                        print("[DRY-RUN] (",i, ")] skipping (expirable category ", expirable_category_matched.category_name ," too old)")
+                        print("[DRY-RUN] (",i, ")] skipping (expirable category ", expirable_category_matched.category_name ," too old) ", title)
                         print()
                     continue
                 elif self.dry_run:
