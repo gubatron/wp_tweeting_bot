@@ -166,7 +166,8 @@ class FileFeed(Feed):
                    print("It's too soon to publish this tweet again (%s)" % tweet['msg'])
                 if index == len(self.tweets)-1:
                     print("\nsleeping (all tweets non-due, avoid cpu hogging)", self.intervals_between_tweets_in_seconds, "seconds... ZZzzz zzz")
-                    time.sleep(self.intervals_between_tweets_in_seconds)
+                    if not self.dry_run:
+                        time.sleep(self.intervals_between_tweets_in_seconds)
                 index = inc_index(index, self.tweets)
                 continue
 
@@ -188,7 +189,8 @@ class FileFeed(Feed):
 
             index = inc_index(index, self.tweets)
             print("\nsleeping ", self.intervals_between_tweets_in_seconds, "seconds... ZZzzz zzz")
-            time.sleep(self.intervals_between_tweets_in_seconds)
+            if not self.dry_run:
+                time.sleep(self.intervals_between_tweets_in_seconds)
 
     @staticmethod
     def load_tweets(feed_path, shuffle):
