@@ -1,17 +1,18 @@
 [yourblog.com]
-feed_url=http://www.yourblog.com/index.php/feed/
+feed_url=https://www.yourblog.com/index.php/feed/
 num_last_tweets=4
 max_days_in_rotation=5
 intervals_between_tweets_in_seconds=60
 attach_featured_images=true
 dry_run=false
+expirable_categories=markets:86400
 oauth_token=
 oauth_token_secret=
 oauth_consumer_key=
 oauth_consumer_secret=
 
 [yourOtherBlog.com]
-feed_url=http://www.yourotherblog.com/index.php/feed/
+feed_url=https://www.yourotherblog.com/index.php/feed/
 num_last_tweets=2
 max_days_in_rotation=2
 intervals_between_tweets_in_seconds=300
