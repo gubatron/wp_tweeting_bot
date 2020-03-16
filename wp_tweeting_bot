@@ -1,17 +1,20 @@
-#!/usr/bin/env python
+#!/usr/bin/python3
 import os
 import configparser
 import feedparser
-import urllib
+import urllib.request
 import re
 import time
 import sys
+import ssl
 import threading
 import random
 from twitter import Twitter, OAuth, TwitterHTTPError
+from bs4 import BeautifulSoup
 
 TWITTER_CONSIDERED_URL_LENGHT = 23
 TWEET_MAX_LENGHT = 280
+MAX_TITLE_LENGTH = 231
 og_image_pattern = re.compile('.*og:image" content="(.*?)".*?\/>')
 
 
@@ -29,8 +32,11 @@ class Feed(object):
         self.oauth_consumer_secret = config.get(section, 'oauth_consumer_secret')
         self.dry_run = config.getboolean(section, 'dry_run')
         self.intervals_between_tweets_in_seconds = config.getint(section, 'intervals_between_tweets_in_seconds')
-        self.max_days_in_rotation = config.getint(section, 'max_days_in_rotation')
+        self.max_days_in_rotation = -1
         self.max_seconds_in_rotation = -1
+
+        if config.has_option(section, 'max_days_in_rotation'):
+            self.max_days_in_rotation = config.getint(section, 'max_days_in_rotation')
         if self.max_days_in_rotation != -1:
             self.max_seconds_in_rotation = self.max_days_in_rotation * 24 * 60 * 60
 
@@ -119,14 +125,14 @@ class FileFeed(Feed):
         if self.max_seconds_in_rotation > 0 and tweet['first_pub_ts'] > 0:
             time_since_first_pub = int(time.time()) - tweet['first_pub_ts']
             if time_since_first_pub > self.max_seconds_in_rotation:
-                print "tweet_id_due() OUT OF ROTATION max_seconds_in_rotation - " + tweet['msg']
+                print("tweet_id_due() OUT OF ROTATION max_seconds_in_rotation - " + tweet['msg'])
                 return False
         return True
 
     def tweet_is_due(self, tweet):
         time_since_last_pub = int(time.time()) - tweet['last_pub_ts']
         is_due = time_since_last_pub > self.repetition_interval_in_seconds
-        print "tweet_is_due(): " + str(is_due) + " time_since_last_pub=" + str(time_since_last_pub) + "s vs rep_interval=" + str(self.repetition_interval_in_seconds) + "s) - " + tweet['msg']
+        print("tweet_is_due(): " + str(is_due) + " time_since_last_pub=" + str(time_since_last_pub) + "s vs rep_interval=" + str(self.repetition_interval_in_seconds) + "s) - " + tweet['msg'])
         return is_due
 
     def file_was_modified(self):
@@ -145,7 +151,7 @@ class FileFeed(Feed):
                 raise IOError("%s no longer a valid file, aborting execution" % self.feed_path)
 
             if self.file_was_modified():
-                print "Feed file was modified!, updating tweets"
+                print("Feed file was modified!, updating tweets")
                 self.file_feed_last_modified = os.stat(self.feed_path).st_mtime
                 index = 0
                 self.update_tweets()
@@ -155,40 +161,40 @@ class FileFeed(Feed):
 
             if not self.tweet_in_rotation(tweet) or (tweet['last_pub_ts'] > 0 and not self.tweet_is_due(tweet)):
                 if not self.tweet_in_rotation(tweet):
-                   print "Tweet no longer in rotation (%s)" % tweet['msg']
+                   print("Tweet no longer in rotation (%s)" % tweet['msg'])
                 elif tweet['last_pub_ts'] > 0 and not self.tweet_is_due(tweet):
-                   print "It's too soon to publish this tweet again (%s)" % tweet['msg']                
+                   print("It's too soon to publish this tweet again (%s)" % tweet['msg'])
                 if index == len(self.tweets)-1:
-                    print "\nsleeping (all tweets non-due, avoid cpu hogging)", self.intervals_between_tweets_in_seconds, "seconds... ZZzzz zzz"
+                    print("\nsleeping (all tweets non-due, avoid cpu hogging)", self.intervals_between_tweets_in_seconds, "seconds... ZZzzz zzz")
                     time.sleep(self.intervals_between_tweets_in_seconds)
                 index = inc_index(index, self.tweets)
                 continue
 
             if not self.tweet_is_valid(tweet['msg']):
-                print "The tweet located in ", self.feed_path, " line ", index+1 , " isn't valid."
+                print("The tweet located in ", self.feed_path, " line ", index+1 , " isn't valid.")
                 index = inc_index(index, self.tweets)
                 continue
 
             if self.dry_run:
-                print "[DRY-RUN tweet! (", index, ")] tweet['msg'], )", tweet['msg'],"\n"
+                print("[DRY-RUN tweet! (", index, ")] tweet['msg'], )", tweet['msg'],"\n")
             else:
                 try:
                     self.twitter_api.statuses.update(status=tweet['msg'])
                 except TwitterHTTPError:
-                    print "Skipping ", tweet['msg'], ' considered as a duplicate'
+                    print("Skipping ", tweet['msg'], ' considered as a duplicate')
 
             tweet['last_pub_ts'] = int(time.time())
             self.tweets[index] = tweet # update the list with the modified dict
 
             index = inc_index(index, self.tweets)
-            print "\nsleeping ", self.intervals_between_tweets_in_seconds, "seconds... ZZzzz zzz"
+            print("\nsleeping ", self.intervals_between_tweets_in_seconds, "seconds... ZZzzz zzz")
             time.sleep(self.intervals_between_tweets_in_seconds)
 
     @staticmethod
     def load_tweets(feed_path, shuffle):
         tweets = []
         if not os.path.isfile(feed_path):
-            print "%s is not a file" % feed_path
+            print("%s is not a file" % feed_path)
             raise IOError("%s is not a file", feed_path)
 
         with open(feed_path, 'r') as tweets_file:
@@ -200,26 +206,32 @@ class FileFeed(Feed):
             raise IOError("%s file is empty ", feed_path)
 
         if shuffle:
-            print "FileFeed.load_tweets: Randomizing tweets"
+            print("FileFeed.load_tweets: Randomizing tweets")
             random.shuffle(tweets)
             random.shuffle(tweets)
-        
+
         return tweets
 
 class URLFeed(Feed):
     """
     Reads titles from a wordpress RSS feed and uses them as tweets.
-    
+
     Config values particular to an URL feed:
     'feed_url': The URL to the RSS feed
     'attached_featured_images': If set to True it will look in the target HTML for a featured image, download it and attach it to the tweet
     'num_last_tweets': How many of the last posts to tweet about, the rest are ignored
+    'expirable_categories:'"<category_name_in_lower_case>":<max_seconds_in_rotation>,...'
     """
     def __init__(self, config, section):
         super(URLFeed, self).__init__(config, section)
         self.feed_url = config.get(section, 'feed_url')
         self.num_last_tweets = config.getint(section, 'num_last_tweets')
         self.attach_featured_images = config.getboolean(section, 'attach_featured_images')
+        self.expirable_categories = None
+        if config.has_option(section, 'expirable_categories'):
+            self.expirable_categories = parse_expirable_categories(config.get(section, 'expirable_categories'), self.max_seconds_in_rotation)
+        if self.dry_run:
+            print("[DRY-RUN] URLFeed.expirable_categories = ", self.expirable_categories)
 
     def process_tweets(self):
         feed_dict = feedparser.parse(self.feed_url)
@@ -230,26 +242,42 @@ class URLFeed(Feed):
             num_tweets = min(self.num_last_tweets, len(feed_dict.entries))
 
         if self.dry_run and num_tweets is 0:
-            print "[DRY-RUN] Got", num_tweets,"tweets"
-            print feed_dict.headers
-            print feed_dict
-            print self
-                
-        for i in xrange(num_tweets):
+            print("[DRY-RUN] Got", num_tweets,"tweets")
+            #print(feed_dict.headers)
+            print(feed_dict)
+            print(self)
+
+        for i in range(num_tweets):
             entry = feed_dict.entries[i]
             title = entry.title
-            if len(title) > 231:
-                title = title[:231]+'...'
+            if len(title) > MAX_TITLE_LENGTH:
+                title = title[:MAX_TITLE_LENGTH]+'...'
 
             seconds_old = time.mktime(entry.published_parsed)
             now = time.time()
+
             if (now-seconds_old) > self.max_seconds_in_rotation:
                 if self.dry_run:
-                    print "[DRY-RUN (", i, ")] skipping (too old) ", title
+                    print("[DRY-RUN (", i, ")] skipping (too old) ", title)
+                    print()
                 continue
-                            
+
+            expirable_category_matched = self.get_matching_expirable_category(entry)
+            if expirable_category_matched is not None:
+                if (now-seconds_old) > expirable_category_matched.max_seconds_in_rotation:
+                    if self.dry_run:
+                        print("[DRY-RUN] (",i, ")] skipping (expirable category ", expirable_category_matched.category_name ," too old)")
+                        print()
+                    continue
+                elif self.dry_run:
+                    print("[DRY-RUN] (",i, ")] has expirable category ", expirable_category_matched.category_name ," but still fresh")
+
             if self.attach_featured_images:
-                featured_image_url = URLFeed.scrape_entry_og_image(entry)
+                featured_image_url = None
+                if not self.dry_run:
+                    featured_image_url = URLFeed.scrape_entry_og_image(entry)
+                else:
+                    print("[DRY-RUN] scrape and download og:image for entry " + entry.link)
 
                 if featured_image_url is not None:
                     if not self.dry_run:
@@ -257,23 +285,30 @@ class URLFeed(Feed):
                         img_id = self.twitter_upload_api.media.upload(media=img_data)["media_id_string"]
                         self.twitter_api.statuses.update(status=title + " " + entry.link, media_ids = img_id) # Call twitter API
                     else:
-                        print "[DRY-RUN (", i, ")] ", title + " " + entry.link, " (+img attachment - ", featured_image_url, ")"
-                        print "[DRY-RUN (", i, ")] time() -> ", time.mktime(entry.published_parsed)
+                        print("[DRY-RUN (", i, ")] ", title + " " + entry.link, " (+img attachment - ", featured_image_url, ")")
+                        print("[DRY-RUN (", i, ")] time() -> ", time.mktime(entry.published_parsed))
                         img_data = download_image(featured_image_url)
-                        print "[DRY-RUN (", i, ")] ", len(img_data)
+                        print("[DRY-RUN (", i, ")] ", len(img_data))
                 else:
-                    print "Could not scrape featured image url from ", entry.link, " (regex might need maintenance)"
+                    print("Could not scrape featured image url from ", entry.link, " (regex might need maintenance)")
             else:
                 if not self.dry_run:
                     self.twitter_api.statuses.update(status=title + " " + entry.link) # Call twitter API
                 else:
-                    print "[DRY-RUN (", i, ")] ", title + " " + entry.link
+                    print("[DRY-RUN (", i, ")] ", title + " " + entry.link)
 
             if self.intervals_between_tweets_in_seconds > 0:
                 if not self.dry_run:
                     time.sleep(self.intervals_between_tweets_in_seconds)
                 else:
-                    print "[DRY-RUN (", i, ")] ", "sleep(", self.intervals_between_tweets_in_seconds,")\n"
+                    print("[DRY-RUN (", i, ")] ", "sleep(", self.intervals_between_tweets_in_seconds,")\n")
+
+    @staticmethod
+    def fetch_html(url):
+        f = urllib.request.urlopen(url)
+        html = f.read()
+        f.close()
+        return html
 
     @staticmethod
     def scrape_entry_og_image(entry):
@@ -284,17 +319,71 @@ class URLFeed(Feed):
         :return: the url of the featured image if found, otherwise None
         """
         featured_image_url = None
-        f = urllib.urlopen(entry.link)
-        html = f.read()
-        f.close()
+        html = URLFeed.fetch_html(entry.link)
         match = og_image_pattern.search(html)
         if match is not None:
             featured_image_url = match.group(1)
         return featured_image_url
 
+    @staticmethod
+    def scrape_entry_categories(entry):
+        """
+        Returns a string list with the names of the categories of this post
+        soup.find_all(name="a",attrs={'rel':'category'})[0].attrs['href']
+        """
+        html_doc = URLFeed.fetch_html(entry.link)
+        soup = BeautifulSoup(html_doc,'html.parser')
+        soup_cats = soup.find_all(name="a",attrs={'rel':'category'})
+        categories_names = []
+        for soup_cat in soup_cats:
+            href = soup_cat.attrs['href']
+            cat_start = href.find('/category/') + 10
+            categories_names.append(href[cat_start:-1])
+            if len(categories_names) >= 3:
+                break
+        return categories_names
+
+    def get_matching_expirable_category(self, entry):
+        if self.expirable_categories is None:
+            return None
+        entry_categories = URLFeed.scrape_entry_categories(entry)
+        if self.dry_run:
+            print("[DRY-RUN] entry_categories")
+            print(entry_categories)
+        for expirable_category in self.expirable_categories:
+            for entry_category_str in entry_categories:
+                if self.dry_run:
+                    print("[DRY-RUN] comparing entry:" + entry_category_str + " vs expirable:" + expirable_category.category_name)
+                if entry_category_str == expirable_category.category_name:
+                    return expirable_category
+        return None
+
+class ExpirableCategory:
+    def __init__(self, category_name_str, max_seconds_in_rotation_str, default_max_rotation_secs):
+        self.category_name = category_name_str
+        try:
+          self.max_seconds_in_rotation = int(max_seconds_in_rotation_str)
+        except:
+          self.max_seconds_in_rotation = default_max_rotation_secs
+
+
+def parse_expirable_categories(config_expirable_categories_string, default_max_rotation_secs):
+    """"<category_name_in_lower_case>":<max_seconds_in_rotation>,..."""
+    expirable_categories = []
+    expirable_category_string_list = config_expirable_categories_string.split(',')
+    for expirable_category_string in expirable_category_string_list:
+        try:
+            cat_expiration_list = expirable_category_string.split(':')
+            if len(cat_expiration_list) != 2:
+                continue
+            expirable_categories.append(ExpirableCategory(cat_expiration_list[0], cat_expiration_list[1], default_max_rotation_secs))
+        except:
+            continue
+    return expirable_categories
+
 def download_image(img_url):
     file_path = "image.tmp"
-    urllib.urlretrieve(img_url, file_path)
+    urllib.request.urlretrieve(img_url, file_path)
     f = open(file_path,'rb')
     img_data = f.read()
     f.close()
@@ -328,13 +417,16 @@ def load_config(configFile='config.conf'):
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print "Error: config file path not passed.\n"
+        print("Error: config file path not passed.\n")
         sys.exit(1)
+    if hasattr(ssl, '_create_unverified_context'):
+        ssl._create_default_https_context = ssl._create_unverified_context
+        print("ssl: create unverified context as a default https context")
     config = load_config(sys.argv[1])
     for section_name in config.sections():
-        try:
+        if config.has_option(section_name, 'feed_url'):
             feed = URLFeed(config, section_name)
-        except configparser.NoOptionError:
+        elif config.has_option(section_name, 'feed_path'):
             feed = FileFeed(config, section_name)
 
         thread = threading.Thread(target=feed.process_tweets)
