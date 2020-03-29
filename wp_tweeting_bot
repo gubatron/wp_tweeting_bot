@@ -282,8 +282,11 @@ class URLFeed(Feed):
                 if featured_image_url is not None:
                     if not self.dry_run:
                         img_data = download_image(featured_image_url)
-                        img_id = self.twitter_upload_api.media.upload(media=img_data)["media_id_string"]
-                        self.twitter_api.statuses.update(status=title + " " + entry.link, media_ids = img_id) # Call twitter API
+                        if img_data is not None:
+                          img_id = self.twitter_upload_api.media.upload(media=img_data)["media_id_string"]
+                          self.twitter_api.statuses.update(status=title + " " + entry.link, media_ids = img_id) # Call twitter API
+                        else:
+                          self.twitter_api.statuses.update(status=title + " " + entry.link)
                     else:
                         print("[DRY-RUN (", i, ")] ", title + " " + entry.link, " (+img attachment - ", featured_image_url, ")")
                         print("[DRY-RUN (", i, ")] time() -> ", time.mktime(entry.published_parsed))
@@ -383,11 +386,14 @@ def parse_expirable_categories(config_expirable_categories_string, default_max_r
 
 def download_image(img_url):
     file_path = "image.tmp"
-    urllib.request.urlretrieve(img_url, file_path)
-    f = open(file_path,'rb')
-    img_data = f.read()
-    f.close()
-    return img_data
+    try:
+      urllib.request.urlretrieve(img_url, file_path)
+      f = open(file_path,'rb')
+      img_data = f.read()
+      f.close()
+      return img_data
+    except:
+      return None
 
 def inc_index(index, collection):
     return (index+1) % len(collection)
