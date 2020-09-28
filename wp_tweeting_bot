@@ -235,7 +235,9 @@ class URLFeed(Feed):
             print("[DRY-RUN] URLFeed.expirable_categories = ", self.expirable_categories)
 
     def process_tweets(self):
+        print("URLFeed.process_tweet: feedparser.parse(url=" + self.feed_url + ")")
         feed_dict = feedparser.parse(self.feed_url)
+        print("URLFeed.process_tweets: got parsed feed_dict")
 
         num_tweets = len(feed_dict.entries)
         print("Got " + str(num_tweets) + " tweets from " + self.feed_url)
@@ -296,7 +298,12 @@ class URLFeed(Feed):
                     print("Could not scrape featured image url from ", entry.link, " (regex might need maintenance)")
             else:
                 if not self.dry_run:
-                    self.twitter_api.statuses.update(status=title + " " + entry.link) # Call twitter API
+                    try:
+                        self.twitter_api.statuses.update(status=title + " " + entry.link) # Call twitter API
+                    except TwitterHTTPError as e:
+                        print("TwitterHTTPError", e)
+                        print("Could not tweet status=" + title)
+                        continue
                 else:
                     print("[DRY-RUN (", i, ")] ", title + " " + entry.link)
 
@@ -310,8 +317,10 @@ class URLFeed(Feed):
     def fetch_html(url):
         print('fetch_html: ' + url)
         f = urllib.request.urlopen(url)
+        print('fetch_html: f.read() ...')
         html = f.read()
         f.close()
+        print('fetch_html: f.close()')
         return html
 
     @staticmethod
@@ -324,6 +333,7 @@ class URLFeed(Feed):
         """
         featured_image_url = None
         html = URLFeed.fetch_html(entry.link)
+        print(html)
         match = og_image_pattern.search(html.decode('utf-8'))
         if match is not None:
             featured_image_url = match.group(1)
@@ -341,9 +351,18 @@ class URLFeed(Feed):
         categories_names = []
         for soup_cat in soup_cats:
             href = soup_cat.attrs['href']
-            cat_start = href.find('/category/') + 10
-            categories_names.append(href[cat_start:-1])
-            if len(categories_names) >= 3:
+            #print("scrape_entry_categories: href=" + href)
+            cat_start = -1
+            if href.find('/category/') >= 0:
+                cat_start = href.find('/category/') + 10
+            elif href.find('/categoria/') >= 0:
+                cat_start = href.find('/categoria/') + 11
+
+            if cat_start > -1:
+                #print("scrape_entry_categories: cat_start=" + str(cat_start))
+                #print("scrape_entry_categories: adding category: [" + href[cat_start:-1] + "]")
+                categories_names.append(href[cat_start:-1])
+            if len(categories_names) >= 5:
                 break
         return categories_names
 
