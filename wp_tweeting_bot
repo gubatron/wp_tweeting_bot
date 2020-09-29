@@ -246,7 +246,6 @@ class URLFeed(Feed):
 
         if self.dry_run and num_tweets is 0:
             print("[DRY-RUN] Got", num_tweets,"tweets")
-            print(self)
 
         for i in range(num_tweets):
             entry = feed_dict.entries[i]
@@ -314,12 +313,9 @@ class URLFeed(Feed):
 
     @staticmethod
     def fetch_html(url):
-        print('fetch_html: ' + url)
         f = urllib.request.urlopen(url)
-        print('fetch_html: f.read() ...')
         html = f.read()
         f.close()
-        print('fetch_html: f.close()')
         return html
 
     @staticmethod
@@ -332,7 +328,6 @@ class URLFeed(Feed):
         """
         featured_image_url = None
         html = URLFeed.fetch_html(entry.link)
-        print(html)
         match = og_image_pattern.search(html.decode('utf-8'))
         if match is not None:
             featured_image_url = match.group(1)
