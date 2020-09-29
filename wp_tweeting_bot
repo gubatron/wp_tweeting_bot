@@ -246,7 +246,6 @@ class URLFeed(Feed):
 
         if self.dry_run and num_tweets is 0:
             print("[DRY-RUN] Got", num_tweets,"tweets")
-            print(feed_dict)
             print(self)
 
         for i in range(num_tweets):
